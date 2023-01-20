@@ -13,11 +13,15 @@ const ROOT_DIR = "docs"
 const PATHS_DIR = "paths"
 const DIR_SEP = "/"
 
+const DOC_ORIGINAL = "doc"
+const DOC_NEW = "main"
+const DOC_EXTENSION = ".yaml"
+
 func main() {
 
 	doc_original := make(map[string]interface{})
 	doc_new := make(map[string]interface{})
-	ymlContent, err := os.ReadFile("./docs/doc.yaml")
+	ymlContent, err := os.ReadFile(ROOT_DIR + DIR_SEP + DOC_ORIGINAL + DOC_EXTENSION)
 	if err != nil {
 		panic(err)
 	}
@@ -35,28 +39,28 @@ func main() {
 		var v interface{}
 
 		fmt.Println()
-		fmt.Println(path)
+		fmt.Println("PATH\t", path)
 		for method, v = range vMethod.(map[string]interface{}) {
 			if method == "$ref" { // already processed
 				continue
 			}
 			method = sanitize(method)
-			fmt.Println(method)
+			fmt.Println("METHOD\t", method)
 			for k, v := range v.(map[string]interface{}) {
 				if k == "summary" {
 					filename = sanitize(v.(string))
-					fmt.Println("SUMMARY", filename)
+					fmt.Println("SUMMARY\t", filename)
 				}
 				if k == "tags" {
 					tagArr, _ := v.([]interface{})
 					tag = sanitize(tagArr[0].(string))
-					fmt.Println("TAG", tag)
+					fmt.Println("TAG\t", tag)
 				}
 			}
 			docPaths := doc_new["paths"].(map[string]interface{})
 			docPath := docPaths[path].(map[string]interface{})
 			delete(docPath, method)
-			docPath["$ref"] = PATHS_DIR + DIR_SEP + tag + DIR_SEP + filename + ".yaml"
+			docPath["$ref"] = PATHS_DIR + DIR_SEP + tag + DIR_SEP + filename + DOC_EXTENSION
 		}
 
 		dir := fmt.Sprintf(
@@ -65,9 +69,7 @@ func main() {
 			PATHS_DIR,
 			tag)
 
-		fmt.Println("FILENAME", dir+DIR_SEP+filename+".yaml")
-
-		fmt.Println(vMethod)
+		fmt.Println("FILENAME", dir+DIR_SEP+filename+DOC_EXTENSION)
 
 		pathContents := replaceRefs(vMethod.(map[string]interface{}))
 		// writes out subdivided files
@@ -75,9 +77,11 @@ func main() {
 	}
 
 	// writes out the main doc
-	fmt.Println("\nMAIN DOC")
+	fmt.Println("\nMAIN DOC IN ", ROOT_DIR+DIR_SEP+DOC_NEW+DOC_EXTENSION)
 	newDoc := NewDocument(doc_new)
-	streamOut("docs", "main", newDoc)
+	streamOut(ROOT_DIR, DOC_NEW, newDoc)
+
+	fmt.Println("\nDONE")
 }
 
 func replaceRefs(a any) any {
@@ -85,7 +89,7 @@ func replaceRefs(a any) any {
 	if ok {
 		for k, v := range val {
 			if k == "$ref" {
-				val[k] = strings.Replace(v.(string), "#/", "../../main.yaml#/", 1)
+				val[k] = strings.Replace(v.(string), "#/", "../../"+DOC_EXTENSION+"#/", 1)
 				return val
 			}
 			val[k] = replaceRefs(v)
@@ -103,7 +107,7 @@ func streamOut(dir string, filename string, data any) {
 	}
 
 	// create writer to file
-	f, err := os.Create(dir + DIR_SEP + filename + ".yaml")
+	f, err := os.Create(dir + DIR_SEP + filename + DOC_EXTENSION)
 	if err != nil {
 		panic(err)
 	}
