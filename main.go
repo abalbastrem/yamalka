@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
@@ -17,7 +16,8 @@ const DIR_SEP = "/"
 func main() {
 
 	doc_original := make(map[string]interface{})
-	ymlContent, err := ioutil.ReadFile("./docs/doc.yaml")
+	doc_new := make(map[string]interface{})
+	ymlContent, err := os.ReadFile("./docs/doc.yaml")
 	if err != nil {
 		panic(err)
 	}
@@ -25,13 +25,16 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	err = yaml.Unmarshal(ymlContent, &doc_new)
+	if err != nil {
+		panic(err)
+	}
 
 	for path, vMethod := range doc_original["paths"].(map[string]interface{}) {
-		var method, summary, tag string
+		var method, filename, tag string
 		var v interface{}
 
 		fmt.Println()
-		path = sanitize(path)
 		fmt.Println(path)
 		for method, v = range vMethod.(map[string]interface{}) {
 			if method == "$ref" { // already processed
@@ -41,8 +44,8 @@ func main() {
 			fmt.Println(method)
 			for k, v := range v.(map[string]interface{}) {
 				if k == "summary" {
-					summary = sanitize(v.(string))
-					fmt.Println("SUMMARY", summary)
+					filename = sanitize(v.(string))
+					fmt.Println("SUMMARY", filename)
 				}
 				if k == "tags" {
 					tagArr, _ := v.([]interface{})
@@ -50,36 +53,66 @@ func main() {
 					fmt.Println("TAG", tag)
 				}
 			}
+			docPaths := doc_new["paths"].(map[string]interface{})
+			docPath := docPaths[path].(map[string]interface{})
+			delete(docPath, method)
+			docPath["$ref"] = PATHS_DIR + DIR_SEP + tag + DIR_SEP + filename + ".yaml"
 		}
 
-		filename := fmt.Sprintf(
-			"%s/%s/%s/%s.yaml",
+		dir := fmt.Sprintf(
+			"%s/%s/%s",
 			ROOT_DIR,
 			PATHS_DIR,
-			tag,
-			summary)
+			tag)
 
-		fmt.Println("FILENAME", filename)
+		fmt.Println("FILENAME", dir+DIR_SEP+filename+".yaml")
 
-		writeOutPathData(vMethod.(map[string]interface{}), filename)
-		// TODO - remove the path from the original doc
-		// delete(doc_original["paths"].(map[string]interface{}), path)
-		// TODO - write out the original doc
-		// writeOutPathData(doc_original, "./docs/doc.yaml")
-		// TODO - tabs as two spaces
+		fmt.Println(vMethod)
+
+		pathContents := replaceRefs(vMethod.(map[string]interface{}))
+		// writes out subdivided files
+		streamOut(dir, filename, pathContents)
 	}
+
+	// writes out the main doc
+	fmt.Println("\nMAIN DOC")
+	newDoc := NewDocument(doc_new)
+	streamOut("docs", "main", newDoc)
 }
 
-func writeOutPathData(pathData map[string]interface{}, filename string) {
-	// TODO bugfix
-	yml, err := yaml.Marshal(pathData)
+func replaceRefs(a any) any {
+	val, ok := a.(map[string]interface{})
+	if ok {
+		for k, v := range val {
+			if k == "$ref" {
+				val[k] = strings.Replace(v.(string), "#/", "../../main.yaml#/", 1)
+				return val
+			}
+			val[k] = replaceRefs(v)
+		}
+		return val
+	}
+
+	return a
+}
+
+func streamOut(dir string, filename string, data any) {
+	// creates dir if it doesn't exist
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		os.Mkdir(dir, 0755)
+	}
+
+	// create writer to file
+	f, err := os.Create(dir + DIR_SEP + filename + ".yaml")
 	if err != nil {
 		panic(err)
 	}
-	err = os.WriteFile(filename, yml, 0644)
-	if err != nil {
-		panic(err)
-	}
+	defer f.Close()
+
+	e := yaml.NewEncoder(f)
+	e.SetIndent(2)
+	e.Encode(data)
+	defer e.Close()
 }
 
 func sanitize(s string) string {
@@ -100,6 +133,28 @@ func sanitize(s string) string {
 	s = regexp.MustCompile(`__`).ReplaceAllString(s, "_")
 	// gets rid of any non-alphanumeric characters or underscores
 	s = regexp.MustCompile(`[^a-zA-Z0-9_]+`).ReplaceAllString(s, "")
+	// gets rid of final non-alphanumeric character, if any
+	s = regexp.MustCompile(`[^a-zA-Z0-9]$`).ReplaceAllString(s, "")
 
 	return s
+}
+
+type Document struct {
+	Openapi    string `yaml:"openapi"`
+	Info       any    `yaml:"info"`
+	Servers    any    `yaml:"servers"`
+	Paths      any    `yaml:"paths"`
+	Tags       any    `yaml:"tags"`
+	Components any    `yaml:"components"`
+}
+
+func NewDocument(data map[string]interface{}) *Document {
+	return &Document{
+		Openapi:    data["openapi"].(string),
+		Info:       data["info"].(map[string]interface{}),
+		Servers:    data["servers"].([]interface{}),
+		Paths:      data["paths"].(map[string]interface{}),
+		Tags:       data["tags"].([]interface{}),
+		Components: data["components"].(map[string]interface{}),
+	}
 }
