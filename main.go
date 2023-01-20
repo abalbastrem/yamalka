@@ -18,6 +18,11 @@ const DOC_NEW = "main"
 const DOC_EXTENSION = ".yaml"
 
 func main() {
+	// make empty file
+	_, err := os.Create(ROOT_DIR + DIR_SEP + DOC_EXTENSION)
+	if err != nil {
+		panic(err)
+	}
 
 	doc_original := make(map[string]interface{})
 	doc_new := make(map[string]interface{})
@@ -89,7 +94,7 @@ func replaceRefs(a any) any {
 	if ok {
 		for k, v := range val {
 			if k == "$ref" {
-				val[k] = strings.Replace(v.(string), "#/", "../../"+DOC_EXTENSION+"#/", 1)
+				val[k] = strings.Replace(v.(string), "#/", "../../"+DOC_NEW+DOC_EXTENSION+"#/", 1)
 				return val
 			}
 			val[k] = replaceRefs(v)
